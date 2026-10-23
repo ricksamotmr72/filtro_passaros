@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BirdMorph Brazil - Filtro de Aves Nativas</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- MediaPipe Face Mesh CDNs -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+  <!-- Fotos das aves embutidas (geradas por tools/gerar-aves-data.ps1) -->
+  <script src="assets/data/aves-data.js"></script>
+
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-cyan-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="w-full glass-panel sticky top-0 z-50 px-6 py-3 border-b border-slate-800/80">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-emerald-500 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20">
+          <i class="fa-solid fa-dove text-xl"></i>
+        </div>
+        <div>
+          <h1 class="font-extrabold text-lg leading-tight bg-gradient-to-r from-amber-300 via-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+            BirdMorph Brasil AI
+          </h1>
+          <p class="text-[11px] text-slate-400 font-medium">Transformação Facial Ultra-Realista com Aves Nativas</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <span id="status-badge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          Câmera Pronta
+        </span>
+        <button id="toggle-camera-btn" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95">
+          <i class="fa-solid fa-video"></i>
+          <span>Iniciar Câmera</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="max-w-7xl mx-auto w-full p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-grow">
+
+    <!-- Camera Viewport Container (7 Cols) -->
+    <div class="lg:col-span-7 flex flex-col items-center justify-center">
+      <div class="relative w-full aspect-[4/3] rounded-3xl overflow-hidden glass-panel border border-slate-700/60 shadow-2xl flex items-center justify-center group">
+
+        <!-- Webcam Stream -->
+        <video id="webcam" class="absolute inset-0 w-full h-full object-cover mirror hidden" autoplay playsinline muted></video>
+
+        <!-- Processing Canvas Overlay -->
+        <canvas id="output-canvas" class="absolute inset-0 w-full h-full object-cover mirror z-10"></canvas>
+
+        <!-- Placeholder when Camera is off -->
+        <div id="camera-placeholder" class="flex flex-col items-center justify-center text-center p-8 z-20 transition-all duration-300">
+          <div class="w-20 h-20 rounded-3xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-center mb-4 text-emerald-400 text-4xl shadow-inner">
+            <i class="fa-solid fa-feather-pointed"></i>
+          </div>
+          <h3 class="text-xl font-bold text-slate-100 mb-2">Inicie o Filtro de Aves</h3>
+          <p class="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
+            Permita o acesso à sua câmera para se transformar em um Pica-Pau, um Tucano ou um Beija-Flor, com fotos reais das aves acompanhando o seu rosto.
+          </p>
+          <button id="start-cam-banner-btn" class="px-6 py-3 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-extrabold rounded-xl shadow-xl shadow-emerald-500/20 transition-all transform hover:scale-105 flex items-center gap-2 text-sm">
+            <i class="fa-solid fa-camera"></i>
+            Ativar Câmera Agora
+          </button>
+        </div>
+
+        <!-- Floating Quick Controls Overlay -->
+        <div id="canvas-overlay-controls" class="absolute bottom-4 left-4 right-4 z-30 flex items-center justify-between pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <div class="pointer-events-auto bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl text-[11px] font-semibold text-slate-300 border border-slate-800/80 flex items-center gap-2">
+            <i class="fa-solid fa-bullseye text-emerald-400"></i>
+            <span id="landmark-count">468 Pontos Anatômicos</span>
+          </div>
+
+          <div class="pointer-events-auto flex items-center gap-2">
+            <button id="snapshot-btn" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 rounded-xl text-xs font-black shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95">
+              <i class="fa-solid fa-camera-retro"></i>
+              Capturar Foto
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Realtime Metrics Bar -->
+      <div class="w-full mt-4 grid grid-cols-3 gap-3">
+        <div class="glass-panel p-3 rounded-2xl border border-slate-800/80 flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-base"><i class="fa-solid fa-face-surprise"></i></div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Abertura de Bico</div>
+            <div id="mouth-open-value" class="text-sm font-extrabold text-slate-100">0%</div>
+          </div>
+        </div>
+
+        <div class="glass-panel p-3 rounded-2xl border border-slate-800/80 flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-base"><i class="fa-solid fa-eye"></i></div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Olhos da Ave</div>
+            <div id="eye-state-value" class="text-sm font-extrabold text-slate-100">Abertos</div>
+          </div>
+        </div>
+
+        <div class="glass-panel p-3 rounded-2xl border border-slate-800/80 flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-base"><i class="fa-solid fa-sun"></i></div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Iluminação</div>
+            <div id="light-value" class="text-sm font-extrabold text-slate-100">Auto</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls Sidebar (5 Cols) -->
+    <div class="lg:col-span-5 flex flex-col gap-4">
+
+      <!-- Species Selector Panel -->
+      <div class="glass-panel p-4 rounded-3xl border border-slate-800/80">
+        <div class="flex items-center justify-between mb-3 px-1">
+          <h2 class="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <i class="fa-solid fa-leaf text-emerald-400"></i>
+            <span>Escolha a Ave</span>
+          </h2>
+          <span id="active-species-name" class="text-xs font-bold text-cyan-400">Pica-Pau</span>
+        </div>
+
+        <!-- 3 Birds Grid -->
+        <div class="grid grid-cols-3 gap-2" id="species-grid">
+          <button data-species="woodpecker" class="species-btn active p-1.5 rounded-2xl border border-cyan-500/60 bg-cyan-500/10 text-center transition-all hover:border-cyan-400">
+            <img data-thumb="woodpecker" alt="Pica-Pau" class="w-full aspect-square object-cover rounded-xl mb-1.5" style="object-position: 50% 30%">
+            <div class="text-xs font-extrabold text-slate-100 truncate">Pica-Pau</div>
+            <div class="text-[10px] text-slate-400 truncate">Topete Vermelho</div>
+          </button>
+
+          <button data-species="toucan" class="species-btn p-1.5 rounded-2xl border border-slate-800 bg-slate-900/50 text-center transition-all hover:border-slate-600">
+            <img data-thumb="toucan" alt="Tucano" class="w-full aspect-square object-cover rounded-xl mb-1.5" style="object-position: 50% 35%">
+            <div class="text-xs font-extrabold text-slate-100 truncate">Tucano</div>
+            <div class="text-[10px] text-slate-400 truncate">Bico Gigante</div>
+          </button>
+
+          <button data-species="beijaflor" class="species-btn p-1.5 rounded-2xl border border-slate-800 bg-slate-900/50 text-center transition-all hover:border-slate-600">
+            <img data-thumb="beijaflor" alt="Beija-Flor" class="w-full aspect-square object-cover rounded-xl mb-1.5" style="object-position: 50% 25%">
+            <div class="text-xs font-extrabold text-slate-100 truncate">Beija-Flor</div>
+            <div class="text-[10px] text-slate-400 truncate">Brilho Iridescente</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Fine-Tuning Sliders -->
+      <div class="glass-panel p-4 rounded-3xl border border-slate-800/80 flex flex-col gap-3">
+        <h2 class="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center justify-between">
+          <span>Ajustes Finos de Realismo</span>
+          <i class="fa-solid fa-sliders text-cyan-400"></i>
+        </h2>
+
+        <div class="flex flex-col gap-1">
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-300 font-medium">Opacidade da Ave</span>
+            <span id="opacity-val" class="text-cyan-400 font-bold">100%</span>
+          </div>
+          <input id="opacity-slider" type="range" min="40" max="100" value="100" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-300 font-medium">Tamanho da Cabeça</span>
+            <span id="size-val" class="text-cyan-400 font-bold">1.0x</span>
+          </div>
+          <input id="size-slider" type="range" min="70" max="140" value="100" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-300 font-medium">Altura no Rosto</span>
+            <span id="offset-val" class="text-cyan-400 font-bold">0</span>
+          </div>
+          <input id="offset-slider" type="range" min="-30" max="30" value="0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+
+        <!-- Feature Toggles -->
+        <div class="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-2">
+          <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input id="mouth-sync-toggle" type="checkbox" checked class="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-slate-800 border-slate-700">
+            <span>Bico Articulado</span>
+          </label>
+
+          <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input id="blink-toggle" type="checkbox" checked class="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-slate-800 border-slate-700">
+            <span>Piscar Junto</span>
+          </label>
+
+          <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input id="feather-skin-toggle" type="checkbox" checked class="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-slate-800 border-slate-700">
+            <span>Plumagem ao Redor</span>
+          </label>
+
+          <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input id="particles-toggle" type="checkbox" checked class="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-slate-800 border-slate-700">
+            <span>Partículas de Penugem</span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Snapshot Modal -->
+  <div id="snapshot-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+    <div class="glass-panel border border-slate-700/80 rounded-3xl p-6 max-w-lg w-full flex flex-col items-center gap-4 shadow-2xl">
+      <div class="flex items-center justify-between w-full">
+        <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> Sua Fusão de Pássaro
+        </h3>
+        <button id="close-modal-btn" class="text-slate-400 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="w-full rounded-2xl overflow-hidden border border-slate-800 shadow-inner">
+        <img id="snapshot-img" src="" alt="Snapshot de Pássaro" class="w-full h-auto">
+      </div>
+
+      <div class="flex gap-3 w-full">
+        <a id="download-btn" href="#" download="meu-passaro-brasileiro.png" class="flex-1 py-3 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black rounded-xl text-center text-xs shadow-lg flex items-center justify-center gap-2">
+          <i class="fa-solid fa-download"></i> Baixar Foto em HD
+        </a>
+        <button id="modal-close-btn" class="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs">
+          Fechar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Aplicação (scripts clássicos, em ordem de dependência: funcionam abrindo o HTML direto do disco) -->
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/assets.js"></script>
+  <script src="js/tracking.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
